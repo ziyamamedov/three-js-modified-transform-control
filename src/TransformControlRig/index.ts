@@ -1,35 +1,55 @@
 import * as THREE from 'three';
 import {OrbitControls} from 'three/examples/jsm/Addons.js';
 import {TransformControls} from 'three/addons/controls/TransformControls.js'
-
+import {GUI} from 'three/addons/libs/lil-gui.module.min.js';
 
 class TransformControlRig {
   private camera: THREE.PerspectiveCamera | THREE.OrthographicCamera
   private renderer: THREE.WebGLRenderer
   private scene: THREE.Scene
   private raycaster: THREE.Raycaster
+  private gui: GUI
+  private guiTransformFolder: GUI
+  private selectedObject: THREE.Object3D | undefined
   orbitControls: OrbitControls
   transformControls: TransformControls
-
 
   constructor(camera: THREE.PerspectiveCamera | THREE.OrthographicCamera, renderer: THREE.WebGLRenderer, scene: THREE.Scene) {
     this.camera = camera;
     this.renderer = renderer;
     this.scene = scene;
     this.raycaster = new THREE.Raycaster()
+    this.selectedObject = undefined
+    camera.lookAt(0, 0, 0)
+    
     // Initialize OrbitControls
     this.orbitControls = new OrbitControls(camera, this.renderer.domElement);
     this.orbitControls.update();
     this.orbitControls.enabled = true;
     this.orbitControls.addEventListener( 'change', this.render );
     
+    // Transform Controls
     this.transformControls = new TransformControls( this.camera, this.renderer.domElement );
     this.transformControls.addEventListener( 'change', this.render );
     this.transformControls.addEventListener( 'dragging-changed', ( event ) => {
       this.orbitControls.enabled = ! event.value;
     })
-    camera.lookAt(0, 0, 0)
-    // window.addEventListener('keydown', this.keyDownHandler)
+
+    // GUI
+    this.gui = new GUI();
+    const initGui = {
+      'position(w)': () => {this.transformControls.setMode('translate')},
+      'scale(r)': () => {this.transformControls.setMode('scale')},
+      'rotate(e)': () => {this.transformControls.setMode('rotate')},
+    }
+    Object.keys(initGui).forEach((key) => {
+      this.gui.add(initGui, key as keyof typeof initGui)
+    })
+    this.guiTransformFolder = this.gui.addFolder('Transform')
+    this.guiTransformFolder.hide() // don't show at the beginning, when no objects selected
+
+    // Event Listeners
+    window.addEventListener('keydown', this.keyDownHandler)
     // window.addEventListener('keyup', this.keyUpHandler)
     window.addEventListener('click', this.clickHandler)
 
@@ -42,16 +62,29 @@ class TransformControlRig {
     this.raycaster.setFromCamera(new THREE.Vector2(x, y), this.camera)
     const meshes = this.scene.children.filter((obj) => obj.userData.isSelectable)
     const objects = this.raycaster.intersectObjects(meshes, true)
-
-    
-    if(objects.length) {
-      this.transformControls.attach(objects[0].object)
-      this.transformControls.enabled
+  
+    // Add control if clicked on object
+    if(objects.length && (this.selectedObject?.uuid !== objects[0].object.uuid)) {
+      console.log('h');
       
+      this.selectedObject = objects[0].object
+      
+      resetGuiForObj(this.guiTransformFolder, this.selectedObject)
+
+      this.transformControls.attach(this.selectedObject)
+      this.transformControls.enabled
+
       this.render()
     }
 
-    console.log(`x: ${x}, y: ${y}`)
+    // Remove control if clicked away
+    if(!objects.length) {
+      
+      this.transformControls.detach()
+      this.selectedObject = undefined
+      this.guiTransformFolder.hide()
+      this.render()
+    }
   }
   private keyDownHandler = (event: KeyboardEvent) => {
     switch ( event.keyCode ) {
@@ -149,6 +182,32 @@ class TransformControlRig {
   private render = () => {
     this.renderer.render(this.scene, this.camera)
   }
+}
+
+const resetGuiForObj = (gui: GUI, obj: THREE.Object3D) => {
+  const newGuiData = {
+    x: obj.position.x,
+    y: obj.position.y,
+    z: obj.position.z,
+    rotationX: obj.rotation.x,
+    rotationY: obj.rotation.y,
+    rotationZ: obj.rotation.z,
+    scaleX: obj.scale.x,
+    scaleY: obj.scale.y,
+    scaleZ: obj.scale.z,
+  }
+  
+  if(gui.controllers.length) {
+    gui.controllers.forEach((controller) => {
+      controller.setValue(newGuiData[controller.property as keyof typeof newGuiData])
+    })
+  } else {
+    Object.keys(newGuiData).forEach((key) => {
+      gui.add(newGuiData, key as keyof typeof newGuiData)
+    })
+  }
+
+  gui.show()
 }
 
 export default TransformControlRig
