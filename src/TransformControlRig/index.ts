@@ -3,13 +3,20 @@ import {OrbitControls} from 'three/examples/jsm/Addons.js';
 import {TransformControls} from 'three/addons/controls/TransformControls.js'
 import {GUI} from 'three/addons/libs/lil-gui.module.min.js';
 
+const GUI_FOLDER_TITLES = {
+  position: 'Position',
+  rotation: 'Rotation',
+  scale: "Scale",
+}
 class TransformControlRig {
   private camera: THREE.PerspectiveCamera | THREE.OrthographicCamera
   private renderer: THREE.WebGLRenderer
   private scene: THREE.Scene
   private raycaster: THREE.Raycaster
   private gui: GUI
-  private guiTransformFolder: GUI
+  private guiPositionFolder: GUI
+  private guiRotationFolder: GUI
+  private guiScaleFolder: GUI
   private selectedObject: THREE.Object3D | undefined
   orbitControls: OrbitControls
   transformControls: TransformControls
@@ -34,6 +41,7 @@ class TransformControlRig {
     this.transformControls.addEventListener( 'dragging-changed', ( event ) => {
       this.orbitControls.enabled = ! event.value;
     })
+    this.transformControls.addEventListener('objectChange', this.transformObjectChangeHandler)
 
     // GUI
     this.gui = new GUI();
@@ -45,8 +53,10 @@ class TransformControlRig {
     Object.keys(initGui).forEach((key) => {
       this.gui.add(initGui, key as keyof typeof initGui)
     })
-    this.guiTransformFolder = this.gui.addFolder('Transform')
-    this.guiTransformFolder.hide() // don't show at the beginning, when no objects selected
+    this.guiPositionFolder = this.gui.addFolder(GUI_FOLDER_TITLES.position)
+    this.guiRotationFolder = this.gui.addFolder(GUI_FOLDER_TITLES.rotation)
+    this.guiScaleFolder = this.gui.addFolder(GUI_FOLDER_TITLES.scale)
+    this.gui.onChange(this.render)
 
     // Event Listeners
     window.addEventListener('keydown', this.keyDownHandler)
@@ -62,14 +72,15 @@ class TransformControlRig {
     this.raycaster.setFromCamera(new THREE.Vector2(x, y), this.camera)
     const meshes = this.scene.children.filter((obj) => obj.userData.isSelectable)
     const objects = this.raycaster.intersectObjects(meshes, true)
-  
+    
+    if(event.target instanceof HTMLElement && !(event.target.tagName === 'CANVAS')) return
+
     // Add control if clicked on object
     if(objects.length && (this.selectedObject?.uuid !== objects[0].object.uuid)) {
-      console.log('h');
       
       this.selectedObject = objects[0].object
       
-      resetGuiForObj(this.guiTransformFolder, this.selectedObject)
+      resetGuiForObj(this.gui, this.selectedObject)
 
       this.transformControls.attach(this.selectedObject)
       this.transformControls.enabled
@@ -77,12 +88,11 @@ class TransformControlRig {
       this.render()
     }
 
-    // Remove control if clicked away
+    // Deselect object if clicked away
     if(!objects.length) {
-      
       this.transformControls.detach()
       this.selectedObject = undefined
-      this.guiTransformFolder.hide()
+      this.gui.folders.forEach((folder) => { folder.controllersRecursive().forEach((controller) => controller.destroy()) })
       this.render()
     }
   }
@@ -182,32 +192,41 @@ class TransformControlRig {
   private render = () => {
     this.renderer.render(this.scene, this.camera)
   }
+  private transformObjectChangeHandler = () => {
+    this.guiPositionFolder.controllers.forEach((controller) => { controller.updateDisplay() })
+    this.guiRotationFolder.controllers.forEach((controller) => { controller.updateDisplay() })
+    this.guiScaleFolder.controllers.forEach((controller) => { controller.updateDisplay() })
+  }
 }
 
 const resetGuiForObj = (gui: GUI, obj: THREE.Object3D) => {
-  const newGuiData = {
-    x: obj.position.x,
-    y: obj.position.y,
-    z: obj.position.z,
-    rotationX: obj.rotation.x,
-    rotationY: obj.rotation.y,
-    rotationZ: obj.rotation.z,
-    scaleX: obj.scale.x,
-    scaleY: obj.scale.y,
-    scaleZ: obj.scale.z,
+  gui.folders.forEach((folder) => {
+    switch(folder._title) {
+      case GUI_FOLDER_TITLES.position:
+        resetGuiFolder(folder, obj, 'position')
+        break
+      case GUI_FOLDER_TITLES.rotation:
+        resetGuiFolder(folder, obj, 'rotation')
+        break
+      case GUI_FOLDER_TITLES.scale:
+        resetGuiFolder(folder, obj, 'scale')
+        break
+      default:
+        break
+    }
+  })
+
+  if(gui._hidden) gui.show()
+}
+
+function resetGuiFolder(folder: GUI, obj: THREE.Object3D, mode: 'position' | 'rotation' | 'scale') {
+  if(folder.controllers.length) {
+    folder.controllersRecursive().forEach((controller) => controller.destroy())
   }
   
-  if(gui.controllers.length) {
-    gui.controllers.forEach((controller) => {
-      controller.setValue(newGuiData[controller.property as keyof typeof newGuiData])
-    })
-  } else {
-    Object.keys(newGuiData).forEach((key) => {
-      gui.add(newGuiData, key as keyof typeof newGuiData)
-    })
-  }
-
-  gui.show()
+  folder.add(obj[mode], 'x')
+  folder.add(obj[mode], 'y')
+  folder.add(obj[mode], 'z')
 }
 
 export default TransformControlRig
